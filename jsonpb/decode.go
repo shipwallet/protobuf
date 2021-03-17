@@ -20,6 +20,7 @@ import (
 	protoV2 "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
+	piface "google.golang.org/protobuf/runtime/protoiface"
 )
 
 const wrapJSONUnmarshalV2 = false
@@ -333,7 +334,7 @@ func (u *Unmarshaler) unmarshalMessage(m protoreflect.Message, in []byte) error 
 		}
 
 		// Unmarshal the field value.
-		if raw == nil || (string(raw) == "null" && !isSingularWellKnownValue(fd)) {
+		if raw == nil || (string(raw) == "null" && !isSingularWellKnownValue(fd) && !(isMessageV1WithCustomJSONPBUnmarshaler(m, fd))) {
 			continue
 		}
 		v, err := u.unmarshalValue(m.NewField(fd), raw, fd)
@@ -388,6 +389,29 @@ func isSingularWellKnownValue(fd protoreflect.FieldDescriptor) bool {
 		return md.FullName() == "google.protobuf.Value" && fd.Cardinality() != protoreflect.Repeated
 	}
 	return false
+}
+
+func isMessageV1WithCustomJSONPBUnmarshaler(m protoreflect.Message, fd protoreflect.FieldDescriptor) bool {
+	if fd.Kind() != protoreflect.MessageKind {
+		return false
+	}
+	switch {
+	case fd.IsList():
+		return false
+	case fd.IsMap():
+		return false
+	default:
+	}
+	v := m.NewField(fd)
+	t := reflect.TypeOf(v.Interface())
+	mz := reflect.Zero(t).Interface()
+	if _, ok := mz.(piface.MessageV1); ok {
+		return false
+
+	}
+
+	_, ok := proto.MessageV1(v.Interface()).(JSONPBUnmarshaler)
+	return ok
 }
 
 func (u *Unmarshaler) unmarshalValue(v protoreflect.Value, in []byte, fd protoreflect.FieldDescriptor) (protoreflect.Value, error) {
